@@ -102,12 +102,17 @@ func (idx *replayIndex) entry(n int, crc uint32) []byte {
 }
 
 // put replaces slot n's entry and writes the index back with fresh checksums.
+// An entry as kept here starts at the used flag; the game's record starts
+// 4 bytes earlier with the slot number, so the last 4 bytes of a kept entry
+// are the following slot's number and must not be written over it.
 func (idx *replayIndex) put(n int, e []byte) error {
 	i := n - idx.first
 	if i < 0 || i >= idx.count || len(e) != entrySize {
 		return fmt.Errorf("slot %d has no place in %s", n, filepath.Base(idx.path))
 	}
-	copy(idx.data[idx.offset+i*entrySize:], e)
+	off := idx.offset + i*entrySize
+	binary.LittleEndian.PutUint32(idx.data[off-4:], uint32(n))
+	copy(idx.data[off:], e[:entrySize-4])
 	if idx.innerCRC {
 		binary.LittleEndian.PutUint32(idx.data, crc32.ChecksumIEEE(idx.data[4:]))
 	}

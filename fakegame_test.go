@@ -75,9 +75,18 @@ func (g *fakeGame) match(n int, stamp time.Time, fill byte) []byte {
 	binary.LittleEndian.PutUint32(e[1:], crc32.ChecksumIEEE(data))
 	binary.LittleEndian.PutUint32(e[5:], uint32(len(data)))
 	binary.LittleEndian.PutUint32(e[9:], uint32(stamp.Unix()))
-	e[101] = fill // stands in for the fighter and other details
+	// The menu's fields: the date and time, and the two fighters (Ryu
+	// against whoever fill says).
+	utc := stamp.UTC()
+	binary.LittleEndian.PutUint16(e[entryYear:], uint16(utc.Year()))
+	e[entryMonth], e[entryDay] = byte(utc.Month()), byte(utc.Day())
+	e[entryHour], e[entryMinute] = byte(utc.Hour()), byte(utc.Minute())
+	e[entryPlayer1+entryFighter] = 0
+	e[entryPlayer1+entryPlayerSize+entryFighter] = fill % byte(len(fighterNames))
 	idx := g.index()
-	copy(idx[ringIndexHead+(n-ringFirst)*entrySize:], e)
+	off := ringIndexHead + (n-ringFirst)*entrySize
+	binary.LittleEndian.PutUint32(idx[off-4:], uint32(n))
+	copy(idx[off:], e)
 	g.writeIndex(idx)
 	return data
 }
@@ -86,6 +95,23 @@ func (g *fakeGame) entry(n int) []byte {
 	idx := g.index()
 	off := ringIndexHead + (n-ringFirst)*entrySize
 	return idx[off : off+entrySize]
+}
+
+// undated copies data with the fields a restore re-dates in the entry at
+// off (save time, title, date, hour and minute) cleared, the entry's last
+// 4 bytes (the next slot's number, which a put leaves alone) with them, and
+// the index's leading CRC.
+func undated(data []byte, off int) []byte {
+	out := append([]byte(nil), data...)
+	for _, r := range [][2]int{{9, 17}, {entryTitleCount, entryTitle + entryTitleLen}, {entryYear, entryPlayer1}, {entryHour, entryMinute + 1}, {entrySize - 4, entrySize}} {
+		for i := off + r[0]; i < off+r[1] && i < len(out); i++ {
+			out[i] = 0
+		}
+	}
+	if off > 0 && len(out) >= 4 {
+		copy(out, []byte{0, 0, 0, 0})
+	}
+	return out
 }
 
 func writeSum(t *testing.T, path string, data []byte) {
@@ -167,7 +193,7 @@ func TestRestorePutsReplayAndEntryBack(t *testing.T) {
 	if err != nil || got.crc != oldReplay.crc {
 		t.Fatalf("slot 301 crc %v err %v", got, err)
 	}
-	if !bytes.Equal(g.entry(ringFirst+1), oldEntry) {
+	if !bytes.Equal(undated(g.entry(ringFirst+1), 0), undated(oldEntry, 0)) {
 		t.Fatal("slot 301's entry is not the restored replay's")
 	}
 	if _, err := readRingIndex(g.dir); err != nil {
@@ -178,6 +204,67 @@ func TestRestorePutsReplayAndEntryBack(t *testing.T) {
 	}
 	if slot, err := restore(file, g.dir, a); err != nil || slot != -1 {
 		t.Fatalf("second restore slot %d err %v", slot, err)
+	}
+}
+
+func TestEntryDetails(t *testing.T) {
+	g := newFakeGame(t)
+	stamp := time.Date(2026, 10, 5, 21, 35, 0, 0, time.UTC)
+	g.match(ringFirst, stamp, 33)
+	d := details(g.entry(ringFirst))
+	if d.matchup() != "Ryu vs Hakan" || !d.Played.Equal(stamp) {
+		t.Fatalf("details %+v", d)
+	}
+	e := g.entry(ringFirst)
+	e[entryPlayer1+entryFighter] = 200
+	if details(e).Fighters[0] != "fighter 200" {
+		t.Fatal("an unknown fighter id should still read")
+	}
+}
+
+func TestRestoreRedatesAndKeepsNeighbourSlotNumbers(t *testing.T) {
+	if running, _ := gameRunning(); running {
+		t.Skip("SSFIV.exe is running")
+	}
+	g := newFakeGame(t)
+	a, _ := openArchive(filepath.Join(t.TempDir(), "out"))
+	base := time.Date(2026, 10, 3, 19, 0, 0, 0, time.UTC)
+	for i := 0; i < 10; i++ {
+		g.match(ringFirst+i, base.Add(time.Duration(i)*time.Minute), byte(i+1))
+	}
+	a.scan([]string{g.dir}, ringFirst, ringLast)
+	old, _ := readSlot(g.dir, ringFirst+7)
+	g.match(ringFirst+7, base.Add(time.Hour), 0x40) // pushes match 7 out
+	a.scan([]string{g.dir}, ringFirst, ringLast)
+
+	before := time.Now()
+	slot, err := restore(filepath.Join(a.dir, a.known[old.crc]), g.dir, a)
+	if err != nil || slot != ringFirst {
+		t.Fatalf("restore slot %d err %v", slot, err)
+	}
+	e := g.entry(ringFirst)
+	d := details(e)
+	if saved := time.Unix(int64(binary.LittleEndian.Uint32(e[9:])), 0); saved.Before(before.Truncate(time.Second)) {
+		t.Fatalf("save time not now: %v", saved)
+	}
+	if d.Played.Before(before.UTC().Truncate(time.Minute)) {
+		t.Fatalf("shown date not now: %v", d.Played)
+	}
+	if string(bytes.TrimRight(e[entryTitle:entryTitle+entryTitleLen], "\x00")) != base.Add(7*time.Minute).Format("2006-01-02 15:04") {
+		t.Fatalf("title %q", e[entryTitle:entryTitle+entryTitleLen])
+	}
+	if d.matchup() != "Ryu vs Balrog" {
+		t.Fatalf("fighters lost: %s", d.matchup())
+	}
+	// The kept entry ends with the number of the slot after the one it came
+	// from (308); slot 301's own number must still be 301.
+	idx := g.index()
+	off := ringIndexHead + (ringFirst+1-ringFirst)*entrySize
+	if n := binary.LittleEndian.Uint32(idx[off-4:]); n != ringFirst+1 {
+		t.Fatalf("slot 301's number became %d", n)
+	}
+	if n := binary.LittleEndian.Uint32(idx[ringIndexHead-4:]); n != ringFirst {
+		t.Fatalf("slot 300's number became %d", n)
 	}
 }
 
@@ -202,7 +289,7 @@ func TestRestoreRepairsAReplayWrittenWithoutItsEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slot != ringFirst+2 || !bytes.Equal(g.entry(ringFirst+2), fiveEntry) {
+	if slot != ringFirst+2 || !bytes.Equal(undated(g.entry(ringFirst+2), 0), undated(fiveEntry, 0)) {
 		t.Fatalf("slot %d not repaired", slot)
 	}
 }
@@ -241,7 +328,7 @@ func TestOrphanedEntryIsKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := readSlot(g.dir, slot)
-	if got.crc != y.crc || !bytes.Equal(g.entry(slot), yEntry) {
+	if got.crc != y.crc || !bytes.Equal(undated(g.entry(slot), 0), undated(yEntry, 0)) {
 		t.Fatalf("slot %d not restored to Y", slot)
 	}
 	if _, err := readRingIndex(g.dir); err != nil {
@@ -280,11 +367,10 @@ func TestRealSaveRoundTrip(t *testing.T) {
 	if r, err := a.scan([]string{dir}, ringFirst, ringLast); err != nil || r.entries != 10 {
 		t.Fatalf("entries %d err %v", r.entries, err)
 	}
-	ring, _ := readRingIndex(dir)
 	// A fake match overwrites the oldest slot. Its time is older still, so
 	// that slot stays the one a restore replaces, which lets the result be
-	// compared with the original byte for byte.
-	target := ringTarget(dir, ring, 0)
+	// compared with the original, apart from the fields a restore re-dates.
+	target, _, _ := ringTarget(dir, 0)
 	lost, _ := readSlot(dir, target)
 	g := &fakeGame{t: t, dir: dir}
 	g.match(target, time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC), 9)
@@ -294,7 +380,8 @@ func TestRealSaveRoundTrip(t *testing.T) {
 		t.Fatalf("restore slot %d (want %d) err %v", slot, target, err)
 	}
 	after, _ := os.ReadFile(filepath.Join(dir, ringIndexName))
-	if !bytes.Equal(after, original) {
+	off := ringIndexHead + (target-ringFirst)*entrySize
+	if !bytes.Equal(undated(after, off), undated(original, off)) {
 		t.Fatal("index differs from the original after the round trip")
 	}
 	back, _ := readSlot(dir, target)
