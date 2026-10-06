@@ -152,6 +152,7 @@ func runGUI(minimized bool) int {
 	view.Bind("openFolder", g.openFolder)
 	view.Bind("showFile", g.showFile)
 	view.Bind("watchInGame", g.watchInGame)
+	view.Bind("watchNow", g.watchNow)
 	view.Bind("setSaveDir", g.setSaveDir)
 	view.Bind("setStartup", func(on bool) actionResult {
 		if err := g.setStartup(on); err != nil {
@@ -366,6 +367,21 @@ func (g *gui) watchInGame(name string) actionResult {
 	}
 	g.log.Printf("restored %s into slot %d of %s", name, slot, dir)
 	return actionResult{OK: true, Message: "Done. Start the game through Steam and open your recent replays; it is the newest one."}
+}
+
+// watchNow puts the replay back and starts the game through Steam, which
+// refreshes Steam's list of the save files on the way (the game reads its
+// files through that list, so a put-back replay needs it).
+func (g *gui) watchNow(name string) actionResult {
+	result := g.watchInGame(name)
+	if !result.OK {
+		return result
+	}
+	if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", "steam://rungameid/45760").Start(); err != nil {
+		g.log.Printf("start game: %v", err)
+		return actionResult{OK: true, Message: "The replay is in the game, but Steam could not be asked to start it. Start the game through Steam and open your recent replays."}
+	}
+	return actionResult{OK: true, Message: "The game is starting. Open your recent replays; it is the newest one."}
 }
 
 const noEntryMessage = "This one was saved by an older version of the app without the details the game needs to list it. Replays saved from now on can be put back."

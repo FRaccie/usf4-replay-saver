@@ -169,7 +169,8 @@ footer input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0
     <p>It takes the place of your oldest recent replay, which is already saved here. Your next match may replace it again, so save it in the game if you want to keep it there.</p>
     <div class="actions">
       <button id="confirm-cancel">Cancel</button>
-      <button class="primary" id="confirm-ok">Put it in the game</button>
+      <button id="confirm-ok">Put it in the game</button>
+      <button class="primary" id="confirm-now">Put it in and start the game</button>
     </div>
   </div>
 </div>
@@ -262,6 +263,7 @@ function renderReplays(state) {
     row.append(el("button", { className: "link", textContent: "Show file", title: replay.name, onclick: () => showFile(replay.name) }));
     if (replay.canWatch) {
       row.append(el("button", { textContent: "Watch in game", onclick: () => askWatch(replay.name) }));
+      row.append(el("button", { className: "primary", textContent: "Watch now", title: "Put it in the game and start the game through Steam", onclick: () => askWatch(replay.name) }));
     } else {
       row.append(el("button", { className: "unavailable", textContent: "Watch in game",
         title: "Saved by an older version, so the game can't list it",
@@ -285,14 +287,16 @@ function closeConfirm() {
 $("confirm-cancel").onclick = closeConfirm;
 $("confirm").onclick = (e) => { if (e.target === $("confirm")) closeConfirm(); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeConfirm(); });
-$("confirm-ok").onclick = async () => {
+async function confirmWatch(action) {
   const name = pending;
   closeConfirm();
   if (!name) return;
-  const result = await watchInGame(name);
+  const result = await action(name);
   toast(result.message);
   refresh();
-};
+}
+$("confirm-ok").onclick = () => confirmWatch(watchInGame);
+$("confirm-now").onclick = () => confirmWatch(watchNow);
 
 $("startup").onchange = async (e) => {
   const result = await setStartup(e.target.checked);
