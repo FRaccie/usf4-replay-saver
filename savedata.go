@@ -18,9 +18,13 @@ import (
 // 300-309 are a ring the game cycles through, rewriting one after every
 // match. Each slot N has a sidecar N.0 holding the CRC-32 of N, little endian.
 const (
-	appID         = "45760"
-	ringFirst     = 300
-	ringLast      = 309
+	appID     = "45760"
+	ringFirst = 300
+	ringLast  = 309
+	// With Ember Netplay the game's match list is slots 280 to 309; the
+	// stock game uses 300 to 309 and leaves 280 to 299 to replays the
+	// native online service handed out, which are worth keeping too.
+	matchFirst    = 280
 	savedFirst    = 0
 	savedLast     = 299
 	replayMagic   = "#BRP"

@@ -89,7 +89,7 @@ func run() int {
 	}
 	fmt.Println("Copying to: " + *out)
 
-	first := ringFirst
+	first := matchFirst
 	if *all {
 		first = savedFirst
 	}
@@ -115,7 +115,7 @@ func run() int {
 			fmt.Println("Stopped.")
 			return 0
 		case <-ticker.C:
-			result, err := a.scan(dirs, ringFirst, ringLast)
+			result, err := a.scan(dirs, matchFirst, ringLast)
 			if err != nil {
 				fmt.Println("Error: " + err.Error())
 				continue
