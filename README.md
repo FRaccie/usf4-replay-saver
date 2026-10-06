@@ -19,7 +19,9 @@ Windows may warn that the app is unrecognized, because it is not code signed. Ch
 
 ## Watching a saved replay again
 
-Close the game, press **Watch in game** next to a replay, then start the game and open your recent replays. The app adds it to the game's 10 recent matches, in place of the oldest one (which it has already saved), and updates the game's list so it shows up with its date and fighters. Your next match may replace it again, so save it in the game if you want it to stay there.
+Close the game, press **Watch in game** next to a replay, then start the game through Steam and open your recent replays. The app adds it to the game's recent matches, in place of the oldest one (which it has already saved), and updates the game's list. It shows up as the newest entry, dated now, with the date it was played as its title: the list shows only its newest 30 entries, sorted by date, so an old replay with its own date would often not be listed at all. Your next match may replace it again, so save it in the game if you want it to stay there.
+
+Start the game through Steam after this, not from a shortcut to `SSFIV.exe`: Steam keeps its own list of the save files' sizes, and the game reads through it. Steam checks the folder when it starts the game; without that check the game reads the put-back replay at the old file's size and reports it as damaged.
 
 To do this the app keeps the game's list details for each replay in a hidden `.index` folder inside `USF4 Replays`. Keep that folder with your replays if you move them.
 
@@ -66,10 +68,10 @@ Run the exe with any of these options to use it without the window:
 
 The game keeps its saves in Steam Cloud, in the folder above. Every save is a numbered file with a small `N.0` file beside it that holds the CRC-32 of the save.
 
-- Files `300` to `309` hold the last 10 matches. The game cycles through them, rewriting one after each match.
-- `replays-swan.dat` is the list the game shows for those 10. Each 125-byte entry, after a 44-byte header, describes one slot: its CRC-32, size, time, date and fighters. The file starts with a CRC-32 of the rest of it.
-- Files `0` to `299` hold replays you saved by hand from the Replay Channel. A file called `LIST` indexes them with entries in the same layout.
-- Every replay starts with `#BRP` and carries the time it was recorded at byte 16.
+- Files `300` to `309` hold the last 10 matches. The game writes the replay of every Versus battle there, spectated ones too, into an empty slot or else the one with the oldest save time. The list in the game is sorted by the match's date, so the replaced row is not always the bottom one.
+- `replays-swan.dat` is the list the game shows for those 10. Each 125-byte record, after a 40-byte header, describes one slot: its number, a used flag, the replay's CRC-32, size, 64-bit save time, a 21-character title, and the details the menu shows (date, the two fighters at +67 and +101, the hour and minute at the end, UTC). The file starts with a CRC-32 of the rest of it. This app keeps each record from its used flag on.
+- Files `0` to `299` hold replays you saved by hand from the Replay Channel. A file called `LIST` indexes them with records in the same layout after an 8-byte header. With [Ember Netplay](https://github.com/Confetti3/SF4-Ember-Netplay) the game's match list is slots 280 to 309 instead, so this app watches those too; in the stock game slots 280 to 299 hold replays the online service handed out.
+- Every replay starts with `#BRP` and carries the time it was recorded at byte 16. The replay itself names no one; the record holds Steam IDs for native online matches and nothing for Ember matches, which is why the list here shows fighters, not players.
 
 ## Building
 

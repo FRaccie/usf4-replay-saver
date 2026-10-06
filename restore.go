@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 var (
@@ -36,12 +37,10 @@ func restore(file string, dir string, a *archive) (int, error) {
 	if !validEntry(entry, crc, len(data)) {
 		return 0, errNoEntry
 	}
-	ring, err := readRingIndex(dir)
+	target, ring, err := ringTarget(dir, crc)
 	if err != nil {
 		return 0, fmt.Errorf("the game's list of recent replays could not be read: %w", err)
 	}
-
-	target := ringTarget(dir, ring, crc)
 	if target < 0 {
 		return -1, nil
 	}
@@ -55,6 +54,7 @@ func restore(file string, dir string, a *archive) (int, error) {
 	if _, err := a.keepEntry(ring.raw(target)); err != nil {
 		return 0, fmt.Errorf("could not save slot %d's list details before replacing them: %w", target, err)
 	}
+	redate(entry, time.Now())
 
 	path := filepath.Join(dir, strconv.Itoa(target))
 	if err := writeReplaced(path, data); err != nil {
@@ -71,28 +71,41 @@ func restore(file string, dir string, a *archive) (int, error) {
 	return target, nil
 }
 
-// ringTarget picks the ring slot to write. It returns -1 when the replay and
-// its entry are already in place. A slot holding the replay without a
-// matching entry (left by an older version of this app) is repaired in
-// place. Otherwise an empty or inconsistent slot comes first, then the slot
-// whose entry has the oldest time.
-func ringTarget(dir string, ring *replayIndex, crc uint32) int {
+// ringTarget picks the match slot to write, with the index that covers it,
+// the way the game picks one after a match: an empty or inconsistent slot
+// first, then the slot whose entry has the oldest time. It returns -1 when the
+// replay and its entry are already in place. A slot holding the replay without
+// a matching entry (left by an older version of this app) is repaired in place.
+func ringTarget(dir string, crc uint32) (int, *replayIndex, error) {
+	ring, err := readRingIndex(dir)
+	if err != nil {
+		return 0, nil, err
+	}
+	saved, _ := readSavedIndex(dir)
 	best, bestTime, bestEmpty := -1, uint32(0), false
-	for n := ringFirst; n <= ringLast; n++ {
+	var bestIndex *replayIndex
+	for n := matchFirst; n <= ringLast; n++ {
+		idx := ring
+		if n < ringFirst {
+			idx = saved
+		}
+		if idx == nil {
+			continue
+		}
 		s, err := readSlot(dir, n)
 		var e []byte
 		if err == nil {
-			e = ring.entry(n, s.crc)
+			e = idx.entry(n, s.crc)
 		}
 		if err == nil && s.crc == crc {
 			if e != nil {
-				return -1
+				return -1, idx, nil
 			}
-			return n
+			return n, idx, nil
 		}
 		if err != nil || e == nil {
 			if !bestEmpty {
-				best, bestEmpty = n, true
+				best, bestIndex, bestEmpty = n, idx, true
 			}
 			continue
 		}
@@ -100,10 +113,10 @@ func ringTarget(dir string, ring *replayIndex, crc uint32) int {
 			continue
 		}
 		if t := binary.LittleEndian.Uint32(e[9:]); best < 0 || t < bestTime {
-			best, bestTime = n, t
+			best, bestIndex, bestTime = n, idx, t
 		}
 	}
-	return best
+	return best, bestIndex, nil
 }
 
 func writeReplaced(path string, data []byte) error {

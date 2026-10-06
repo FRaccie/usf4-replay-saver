@@ -67,6 +67,7 @@ type replayInfo struct {
 	Time     int64  `json:"time"` // Unix milliseconds
 	New      bool   `json:"new"`
 	CanWatch bool   `json:"canWatch"` // the game's list entry for it was kept
+	Matchup  string `json:"matchup"`  // "Ryu vs Ken", from the kept entry
 }
 
 type guiState struct {
@@ -243,7 +244,7 @@ func (g *gui) watch(stop <-chan struct{}) {
 
 		changed := false
 		if len(dirs) > 0 {
-			result, err := g.archive.scan(dirs, ringFirst, ringLast)
+			result, err := g.archive.scan(dirs, matchFirst, ringLast)
 			if err != nil {
 				g.log.Printf("scan: %v", err)
 			}
@@ -306,7 +307,10 @@ func (g *gui) state() guiState {
 		info := replayInfo{Name: name, Time: when.UnixMilli(), New: fresh[name]}
 		if m := archivedName.FindStringSubmatch(name); m != nil {
 			if crc, err := strconv.ParseUint(m[1], 16, 32); err == nil {
-				info.CanWatch = g.archive.hasEntry(uint32(crc))
+				if e := g.archive.loadEntry(uint32(crc)); e != nil {
+					info.CanWatch = true
+					info.Matchup = details(e).matchup()
+				}
 			}
 		}
 		s.Replays = append(s.Replays, info)
@@ -361,7 +365,7 @@ func (g *gui) watchInGame(name string) actionResult {
 		return actionResult{OK: true, Message: "That replay is already in the game. Start the game and open your recent replays."}
 	}
 	g.log.Printf("restored %s into slot %d of %s", name, slot, dir)
-	return actionResult{OK: true, Message: "Done. Start the game and open your recent replays to watch it."}
+	return actionResult{OK: true, Message: "Done. Start the game through Steam and open your recent replays; it is the newest one."}
 }
 
 const noEntryMessage = "This one was saved by an older version of the app without the details the game needs to list it. Replays saved from now on can be put back."
@@ -380,7 +384,7 @@ func (g *gui) logDirs(dirs []string) {
 func activeSaveDir(dirs []string) string {
 	best, bestTime := dirs[0], time.Time{}
 	for _, dir := range dirs {
-		for n := ringFirst; n <= ringLast; n++ {
+		for n := matchFirst; n <= ringLast; n++ {
 			if s, err := readSlot(dir, n); err == nil && s.written.After(bestTime) {
 				best, bestTime = dir, s.written
 			}
