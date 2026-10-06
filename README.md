@@ -19,7 +19,9 @@ Windows may warn that the app is unrecognized, because it is not code signed. Ch
 
 ## Watching a saved replay again
 
-Close the game, press **Watch now** next to a replay, and the game starts through Steam with that replay in its recent replays; **Watch in game** only puts it in, for you to start the game yourself through Steam. The app adds it to the game's recent matches, in place of the oldest one (which it has already saved), and updates the game's list. It shows up as the newest entry, dated now, with the date it was played as its title: the list shows only its newest 30 entries, sorted by date, so an old replay with its own date would often not be listed at all. Your next match may replace it again, so save it in the game if you want it to stay there.
+Close the game, press **Watch now** next to a replay, and the game starts through Steam with that replay in its recent replays; **Watch in game** only puts it in, for you to start the game yourself through Steam.
+
+With [Ember Netplay](https://github.com/Confetti3/SF4-Ember-Netplay) installed the button is **Watch in Ember** instead: it hands the replay to Ember, which puts it into the running game and opens the battle log on it, no restart; with the game closed, Ember starts it with the replay. The app adds it to the game's recent matches, in place of the oldest one (which it has already saved), and updates the game's list. It shows up as the newest entry, dated now, with the date it was played as its title: the list shows only its newest 30 entries, sorted by date, so an old replay with its own date would often not be listed at all. Your next match may replace it again, so save it in the game if you want it to stay there.
 
 Start the game through Steam after this, not from a shortcut to `SSFIV.exe`: Steam keeps its own list of the save files' sizes, and the game reads through it. Steam checks the folder when it starts the game; without that check the game reads the put-back replay at the old file's size and reports it as damaged.
 

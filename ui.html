@@ -263,7 +263,8 @@ function renderReplays(state) {
     row.append(el("button", { className: "link", textContent: "Show file", title: replay.name, onclick: () => showFile(replay.name) }));
     if (replay.canWatch) {
       row.append(el("button", { textContent: "Watch in game", onclick: () => askWatch(replay.name) }));
-      row.append(el("button", { className: "primary", textContent: "Watch now", title: "Put it in the game and start the game through Steam", onclick: () => askWatch(replay.name) }));
+      if (state.ember) row.append(el("button", { className: "primary", textContent: "Watch in Ember", title: "Ember plays it in the running game, or starts the game with it", onclick: () => watchInEmber(replay.name).then((r) => toast(r.message)) }));
+      else row.append(el("button", { className: "primary", textContent: "Watch now", title: "Put it in the game and start the game through Steam", onclick: () => askWatch(replay.name) }));
     } else {
       row.append(el("button", { className: "unavailable", textContent: "Watch in game",
         title: "Saved by an older version, so the game can't list it",

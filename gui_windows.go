@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,6 +77,7 @@ type guiState struct {
 	Expected string       `json:"expected"`
 	Replays  []replayInfo `json:"replays"`
 	Startup  bool         `json:"startup"`
+	Ember    bool         `json:"ember"` // Ember Netplay is installed, so it can play a replay in a running game
 	Version  string       `json:"version"`
 }
 
@@ -153,6 +155,7 @@ func runGUI(minimized bool) int {
 	view.Bind("showFile", g.showFile)
 	view.Bind("watchInGame", g.watchInGame)
 	view.Bind("watchNow", g.watchNow)
+	view.Bind("watchInEmber", g.watchInEmber)
 	view.Bind("setSaveDir", g.setSaveDir)
 	view.Bind("setStartup", func(on bool) actionResult {
 		if err := g.setStartup(on); err != nil {
@@ -285,6 +288,7 @@ func (g *gui) state() guiState {
 		OutDir:   g.archive.dir,
 		Expected: `Steam\userdata\<your Steam ID>\45760\remote\CAPCOM\SUPERSTREETFIGHTERIV\SSF4_SaveData`,
 		Startup:  g.startupEnabled(),
+		Ember:    emberInstalled(),
 		Version:  version,
 		Replays:  []replayInfo{},
 	}
@@ -382,6 +386,35 @@ func (g *gui) watchNow(name string) actionResult {
 		return actionResult{OK: true, Message: "The replay is in the game, but Steam could not be asked to start it. Start the game through Steam and open your recent replays."}
 	}
 	return actionResult{OK: true, Message: "The game is starting. Open your recent replays; it is the newest one."}
+}
+
+// emberInstalled reports whether Ember Netplay's launcher has registered the
+// ember: link scheme, which a replay link needs.
+func emberInstalled() bool {
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Classes\ember\shell\open\command`, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	key.Close()
+	return true
+}
+
+// watchInEmber hands the replay to Ember Netplay through an ember://replay
+// link: Ember's launcher gives it to the running game, which plays it from
+// its main menu, or starts the game with it. Nothing is written here; Ember
+// does the put-back itself, through Steam, while the game runs.
+func (g *gui) watchInEmber(name string) actionResult {
+	path, ok := g.replayPath(name)
+	if !ok {
+		return actionResult{Message: "That replay file is missing from the folder."}
+	}
+	link := "ember://replay/open?file=" + url.PathEscape(path)
+	if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", link).Start(); err != nil {
+		g.log.Printf("open %s: %v", link, err)
+		return actionResult{Message: "Ember could not be asked to play it: " + err.Error()}
+	}
+	g.log.Printf("handed %s to Ember", name)
+	return actionResult{OK: true, Message: "Handed to Ember. With the game at its main menu it opens the battle log on this replay."}
 }
 
 const noEntryMessage = "This one was saved by an older version of the app without the details the game needs to list it. Replays saved from now on can be put back."
